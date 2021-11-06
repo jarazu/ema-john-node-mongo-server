@@ -3,20 +3,42 @@ const { MongoClient } = require('mongodb');
 require('dotenv').config();
 const cors = require('cors');
 
+const { initializeApp } = require('firebase-admin/app');
+var admin = require("firebase-admin");
+var serviceAccount = require('./firebase-adminsdk.json');
+admin.initializeApp({
+  credential: admin.credential.cert(serviceAccount)
+});
+
 const app = express();
 const port = process.env.PORT || 5000;
+
 
 // middleware
 app.use(cors());
 app.use(express.json());
 
-const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASS}@cluster0.swu9d.mongodb.net/myFirstDatabase?retryWrites=true&w=majority`;
+async function verifyToken(req, res, next) {
+    if(req.headers.authorization){
+        const idToken = req.headers.authorization.split('Bearer ')[1];
+        try {
+            const decodeduser = await admin.auth().verifyIdToken(idToken);
+            // console.log(decodeduser);
+            req.decodeduserEmail = decodeduser.email;
+        } catch (error) {
+            
+        }
+    }
+    next();
+}
+
+const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASS}@cluster0.v21cd.mongodb.net/myFirstDatabase?retryWrites=true&w=majority`;
 const client = new MongoClient(uri, { useNewUrlParser: true, useUnifiedTopology: true });
 
 async function run() {
     try {
         await client.connect();
-        const database = client.db('online_shop');
+        const database = client.db('onlineShop');
         const productCollection = database.collection('products');
         const orderCollection = database.collection('orders');
 
@@ -49,9 +71,24 @@ async function run() {
             res.send(products);
         });
 
+        // get all orders
+        app.get('/orders', verifyToken, async(req, res) =>{
+            let query = {};
+            const email = req.query.email;
+            
+            if (req.decodeduserEmail === email) {
+                const cursor = orderCollection.find(query)
+                const orders = await cursor.toArray();
+                res.json(orders);
+            }
+            else{
+                res.status(404).json({message: 'User not authorized'})
+            }
+        })
         // Add Orders API
         app.post('/orders', async (req, res) => {
             const order = req.body;
+            order.createdAt = new Date();
             const result = await orderCollection.insertOne(order);
             res.json(result);
         })
